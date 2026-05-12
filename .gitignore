@@ -1,0 +1,29 @@
+# Build artifacts
+/build/
+cmake-build-*
+
+# Logs / temp files
+*.log
+*.cache
+
+# Compiled files
+*.o
+*.so
+*.a
+
+# Third party libs
+third_party/TensorRT-10.16.1.11
+
+# python artifacts
+.venv
+.ipynb_checkpoints/
+
+# Models / Videos
+/models/*.engine
+/models/*.onnx
+/models/*.pt
+*.mp4
+
+# IDE
+.vscode/
+.swp
