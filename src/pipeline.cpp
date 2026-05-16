@@ -1,32 +1,49 @@
 #include "pipeline.hpp"
+#include "lane_engine.hpp"
 #include "yolo_engine.hpp"
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cuda_runtime.h>
 #include <memory>
 #include <opencv2/core/mat.hpp>
+#include <opencv2/core/types.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/opencv.hpp>
 #include <ratio>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
-void launch_preprocess(const uint8_t *d_bgr, float *d_out, int src_w, int src_h,
-                       int dst_w, int dst_h, cudaStream_t stream);
+void launch_preprocess(const uint8_t *d_bgr,
+                       float         *d_out,
+                       int            src_w,
+                       int            src_h,
+                       int            dst_w,
+                       int            dst_h,
+                       cudaStream_t   stream,
+                       int            norm_type = 0);
 
 Pipeline::Pipeline(const std::string &video_path,
-                   const std::string &engine_path, float conf_thresh,
-                   float iou_thresh)
-    : conf_thresh_(conf_thresh), iou_thresh_(iou_thresh) {
+                   const std::string &yolo_engine_path,
+                   const std::string &lane_engine_path,
+                   float              yolo_conf_thresh,
+                   float              yolo_iou_thresh,
+                   float              lane_conf_thresh)
+    : yolo_conf_thresh_(yolo_iou_thresh), yolo_iou_thresh_(yolo_iou_thresh),
+      lane_conf_thresh_(lane_conf_thresh) {
     // Open video
     if (!source_.open(video_path))
         throw std::runtime_error("Cannot open video: " + video_path);
 
     // Load YOLO engine
-    model_ = std::make_unique<YoloEngine>();
-    model_->load(engine_path);
+    yolo_model_ = std::make_unique<YoloEngine>();
+    yolo_model_->load(yolo_engine_path);
+
+    lane_model_ = std::make_unique<LaneEngine>();
+    lane_model_->load(lane_engine_path);
 
     cudaStreamCreate(&stream_);
 
@@ -34,18 +51,24 @@ Pipeline::Pipeline(const std::string &video_path,
     size_t frame_bytes = source_.width() * source_.height() * 3;
     cudaMalloc(&d_bgr_gpu_, frame_bytes);
 
-    auto [iw, ih] = model_->input_size();
-    cudaMalloc(&d_input_, sizeof(float) * 3 * iw * ih);
+    // Alllocate seperate input buffers for both models
+    auto [yw, yh] = yolo_model_->input_size();
+    cudaMalloc(&d_input_yolo, sizeof(float) * 3 * yw * yh);
+
+    auto [lw, lh] = lane_model_->input_size();
+    cudaMalloc(&d_input_lane, sizeof(float) * 3 * lw * lh);
 }
 
 Pipeline::~Pipeline() {
     cudaFree(d_bgr_gpu_);
-    cudaFree(d_input_);
+    cudaFree(d_input_lane);
+    cudaFree(d_input_yolo);
     cudaFree(stream_);
 }
 
 void Pipeline::run() {
-    auto [iw, ih] = model_->input_size();
+    auto [yw, yh] = yolo_model_->input_size();
+    auto [lw, lh] = lane_model_->input_size();
     cv::Mat frame;
 
     auto t_prev = std::chrono::steady_clock::now();
@@ -59,45 +82,68 @@ void Pipeline::run() {
             frame = frame.clone();
 
         // Upload fram to GPU
-        cudaMemcpyAsync(d_bgr_gpu_, frame.data,
+        cudaMemcpyAsync(d_bgr_gpu_,
+                        frame.data,
                         frame.cols * frame.rows * frame.elemSize(),
-                        cudaMemcpyHostToDevice, stream_);
+                        cudaMemcpyHostToDevice,
+                        stream_);
 
-        // Preprocess on GPU (resize,, normalize, NCHW)
-        launch_preprocess((uint8_t *)d_bgr_gpu_, (float *)d_input_,
-                          source_.width(), source_.height(), iw, ih, stream_);
+        // Preprocess on YOLO (640*640)
+        launch_preprocess((uint8_t *)d_bgr_gpu_,
+                          (float *)d_input_yolo,
+                          source_.width(),
+                          source_.height(),
+                          yw,
+                          yh,
+                          stream_,
+                          0);
 
-        // Run inference on GPU
-        model_->infer_async(d_input_, stream_);
+        // Preprocess on Lane (800*320)
+        launch_preprocess((uint8_t *)d_bgr_gpu_,
+                          (float *)d_input_lane,
+                          source_.width(),
+                          source_.height(),
+                          lw,
+                          lh,
+                          stream_,
+                          1);
+
+        // Run both inference on GPU asynchronously
+        yolo_model_->infer_async(d_input_yolo, stream_);
+        lane_model_->infer_async(d_input_lane, stream_);
 
         // Wait for GPU to finish
         cudaStreamSynchronize(stream_);
 
         // Get detections (does NMS inside)
-        auto detections = model_->get_detections(conf_thresh_, iou_thresh_);
+        auto detections = yolo_model_->get_detections(yolo_conf_thresh_, yolo_iou_thresh_);
+        auto lanes      = lane_model_->get_lanes(lane_conf_thresh_);
 
-        float scale =
-            std::min(640.0f / source_.width(), 640.0f / source_.height());
-        int new_w = (int)(source_.width() * scale);
-        int new_h = (int)(source_.height() * scale);
-        int pad_x = (640 - new_w) / 2;
-        int pad_y = (640 - new_h) / 2;
+        // YOlo scaling math
+        float y_scale = std::min(640.0f / source_.width(), 640.0f / source_.height());
+        int   y_pad_x = (640 - (int)(source_.width() * y_scale)) / 2;
+        int   y_pad_y = (640 - (int)(source_.height() * y_scale)) / 2;
+
+        // Lane scaling math
+        float l_scale = std::min(800.0f / source_.width(), 320.0f / source_.height());
+        int   l_pad_x = (800 - (int)(source_.width() * l_scale)) / 2;
+        int   l_pad_y = (320 - (int)(source_.height() * l_scale)) / 2;
 
         // FPS calculation
         auto  now = std::chrono::steady_clock::now();
-        float ms =
-            std::chrono::duration<float, std::milli>(now - t_prev).count();
+        float ms  = std::chrono::duration<float, std::milli>(now - t_prev).count();
         float fps = 1000.0f / ms;
         t_prev    = now;
 
+        // Draw YOLO
         for (const auto &d : detections) {
             // d.x, d.y, d.x2, d.y2 are in 640x640 space
             // step 1: remove padding
             // step 2: undo scale
-            int x1 = (int)((d.x1 - pad_x) / scale);
-            int y1 = (int)((d.y1 - pad_y) / scale);
-            int x2 = (int)((d.x2 - pad_x) / scale);
-            int y2 = (int)((d.y2 - pad_y) / scale);
+            int x1 = (int)((d.x1 - y_pad_x) / y_scale);
+            int y1 = (int)((d.y1 - y_pad_y) / y_scale);
+            int x2 = (int)((d.x2 - y_pad_x) / y_scale);
+            int y2 = (int)((d.y2 - y_pad_y) / y_scale);
 
             // clamp to frame bounds
             x1 = std::max(0, std::min(x1, frame.cols - 1));
@@ -109,12 +155,38 @@ void Pipeline::run() {
             cv::putText(frame,
                         "cls:" + std::to_string(d.class_id) + " " +
                             std::to_string((int)(d.confidence * 100)) + "%",
-                        {x1, y1 - 8}, cv::FONT_HERSHEY_SIMPLEX, 0.5,
-                        {0, 255, 0}, 1);
+                        {x1, y1 - 8},
+                        cv::FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        {0, 255, 0},
+                        1);
         }
-        cv::putText(frame, "FPS: " + std::to_string((int)fps), {10, 30},
-                    cv::FONT_HERSHEY_SIMPLEX, 1.0, {0, 200, 255}, 2);
-        cv::imshow("YOLO inference", frame);
+
+        // Draw Lanes
+        for (const auto &lane : lanes) {
+            std::vector<cv::Point> poly_points;
+            for (const auto &pt : lane.points) {
+                // Undo letterbox padding and acaling for the lane points
+                int orig_x = (int)((pt.x - l_pad_x) / l_scale);
+                int orig_y = (int)((pt.y - l_pad_y) / l_scale);
+                poly_points.push_back(cv::Point(orig_x, orig_y));
+            }
+            // Draw the polyline
+            if (poly_points.size() > 1)
+                std::cout << "Drawing lane with " << poly_points.size() << " points. "
+                          << "Start: (" << poly_points.front().x << "," << poly_points.front().y << ") "
+                          << "End: (" << poly_points.back().x << "," << poly_points.back().y << ")\n";
+            cv::polylines(frame, poly_points, false, cv::Scalar(0, 0, 255), 3);
+        }
+
+        cv::putText(frame,
+                    "FPS: " + std::to_string((int)fps),
+                    {10, 30},
+                    cv::FONT_HERSHEY_SIMPLEX,
+                    1.0,
+                    {0, 200, 255},
+                    2);
+        cv::imshow(" inference", frame);
         if (cv::waitKey(1) == 'q')
             break;
     }

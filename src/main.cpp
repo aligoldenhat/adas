@@ -4,7 +4,6 @@
 #include <exception>
 #include <iostream>
 #include <memory>
-#include <nlohmann/json.hpp>
 #include <string>
 
 int main(int argc, char *argv[]) {
@@ -14,14 +13,14 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    std::string video_path  = argv[1];
-    std::string engine_path = argv[2];
+    std::string video_path       = argv[1];
+    std::string yolo_engine_path = argv[2];
+    std::string lane_engine_path = argv[3];
 
-    ModelRegistry::get().register_model(
-        "yolo26s", [] { return std::make_unique<YoloEngine>(); });
+    ModelRegistry::get().register_model("yolo26s", [] { return std::make_unique<YoloEngine>(); });
 
     try {
-        Pipeline pipeline(video_path, engine_path, 0.2f, 0.45f);
+        Pipeline pipeline(video_path, yolo_engine_path, lane_engine_path, 0.4f, 0.45f, 0.02f);
         pipeline.run();
     } catch (const std::exception &e) {
         std::cerr << "Error: " << e.what() << "\n";
