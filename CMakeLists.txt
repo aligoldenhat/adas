@@ -22,6 +22,9 @@ find_package(CUDAToolkit REQUIRED)
 
 include(FetchContent)
 
+FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
+FetchContent_MakeAvailable(json)
+
 # Build a library from all our source files
 add_library(inference_lib
     src/yolo_engine.cpp
@@ -49,6 +52,7 @@ target_link_libraries(inference_lib PUBLIC
     CUDA::cuda_driver
     ${TENSORRT_LIB}                          # TensorRT core
     ${TENSORRT_PLUGIN_LIB}                   # TensorRT built-in layers
+    nlohmann_json::nlohmann_json
 )
 
 # Build the final executable

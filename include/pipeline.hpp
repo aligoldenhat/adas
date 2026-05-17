@@ -1,23 +1,20 @@
 #pragma once
+#include "config.hpp"
 #include "lane_engine.hpp"
 #include "video_source.hpp"
 #include "yolo_engine.hpp"
 #include <memory>
-#include <string>
 
 class Pipeline {
   public:
-    Pipeline(const std::string &video_path,
-             const std::string &yolo_engine_path,
-             const std::string &lane_engine_path,
-             float              yolo_conf_thresh = 0.4f,
-             float              yolo_iou_thresh  = 0.45f,
-             float              lane_conf_thresh = 0.1f);
+    Pipeline(const Config &cfg);
     ~Pipeline();
 
     void run();
 
   private:
+    Config cfg_;
+
     std::unique_ptr<YoloEngine> yolo_model_;
     std::unique_ptr<LaneEngine> lane_model_;
     VideoSource                 source_;

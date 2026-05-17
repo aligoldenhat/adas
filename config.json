@@ -1,0 +1,15 @@
+{
+    "video": {
+        "source": "tools/youtube_clip_50_52.mp4"
+    },
+    "yolo": {
+        "engine":     "models/best_trt.engine",
+        "conf_thresh": 0.4,
+        "iou_thresh":  0.45
+    },
+    "lane": {
+        "engine":     "models/clrernet_fp16.engine",
+        "conf_thresh": 0.04,
+        "nms_iou":     0.50
+    }
+}

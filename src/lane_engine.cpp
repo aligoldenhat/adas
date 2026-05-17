@@ -90,7 +90,7 @@ void LaneEngine::infer_async(void *d_input, cudaStream_t stream) {
     ctx_->enqueueV3(stream);
 }
 
-std::vector<Lane> LaneEngine::get_lanes(float conf_thresh) {
+std::vector<Lane> LaneEngine::get_lanes(float conf_thresh, float nms_iou) {
     // Head 2 (indices 8, 10, 11) is important
     std::vector<float> h_logits(NUM_PRIOR * 2);
     std::vector<float> h_lengths(NUM_PRIOR * 1);
@@ -147,7 +147,7 @@ std::vector<Lane> LaneEngine::get_lanes(float conf_thresh) {
     // return lanes;
 
     // Suppress lanes within 20 picesl of each other
-    return nms_lanes(lanes, 50.0f);
+    return nms_lanes(lanes, nms_iou);
 }
 
 std::vector<Lane> LaneEngine::nms_lanes(std::vector<Lane> &candidates, float x_distance_thresh) {

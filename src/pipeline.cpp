@@ -1,4 +1,5 @@
 #include "pipeline.hpp"
+#include "config.hpp"
 #include "lane_engine.hpp"
 #include "yolo_engine.hpp"
 #include <algorithm>
@@ -25,24 +26,17 @@ void launch_preprocess(const uint8_t *d_bgr,
                        cudaStream_t   stream,
                        int            norm_type = 0);
 
-Pipeline::Pipeline(const std::string &video_path,
-                   const std::string &yolo_engine_path,
-                   const std::string &lane_engine_path,
-                   float              yolo_conf_thresh,
-                   float              yolo_iou_thresh,
-                   float              lane_conf_thresh)
-    : yolo_conf_thresh_(yolo_iou_thresh), yolo_iou_thresh_(yolo_iou_thresh),
-      lane_conf_thresh_(lane_conf_thresh) {
+Pipeline::Pipeline(const Config &cfg) : cfg_(cfg) {
     // Open video
-    if (!source_.open(video_path))
-        throw std::runtime_error("Cannot open video: " + video_path);
+    if (!source_.open(cfg.video.source))
+        throw std::runtime_error("Cannot open video: " + cfg.video.source);
 
     // Load YOLO engine
     yolo_model_ = std::make_unique<YoloEngine>();
-    yolo_model_->load(yolo_engine_path);
+    yolo_model_->load(cfg.yolo.engine);
 
     lane_model_ = std::make_unique<LaneEngine>();
-    lane_model_->load(lane_engine_path);
+    lane_model_->load(cfg.lane.engine);
 
     cudaStreamCreate(&stream_);
 
@@ -115,8 +109,8 @@ void Pipeline::run() {
         cudaStreamSynchronize(stream_);
 
         // Get detections (does NMS inside)
-        auto detections = yolo_model_->get_detections(yolo_conf_thresh_, yolo_iou_thresh_);
-        auto lanes      = lane_model_->get_lanes(lane_conf_thresh_);
+        auto detections = yolo_model_->get_detections(cfg_.yolo.conf_thresh, cfg_.yolo.iou_thresh);
+        auto lanes      = lane_model_->get_lanes(cfg_.lane.conf_thresh, cfg_.lane.nms_iou);
 
         // YOlo scaling math
         float y_scale = std::min(640.0f / source_.width(), 640.0f / source_.height());
@@ -173,8 +167,10 @@ void Pipeline::run() {
             // Draw the polyline for DEBUG
             if (poly_points.size() > 1)
                 std::cout << "Drawing lane with " << poly_points.size() << " points. "
-                          << "Start: (" << poly_points.front().x << "," << poly_points.front().y << ") "
-                          << "End: (" << poly_points.back().x << "," << poly_points.back().y << ")\n";
+                          << "Start: (" << poly_points.front().x << "," << poly_points.front().y
+                          << ") "
+                          << "End: (" << poly_points.back().x << "," << poly_points.back().y
+                          << ")\n";
             cv::polylines(frame, poly_points, false, cv::Scalar(0, 0, 255), 3);
         }
 

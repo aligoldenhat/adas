@@ -15,7 +15,7 @@ class LaneEngine : public ModelBase {
     void load(const std::string &engine_path) override;
     void infer_async(void *d_input, cudaStream_t stream) override;
 
-    std::vector<Lane> get_lanes(float conf_thresh);
+    std::vector<Lane> get_lanes(float conf_thresh, float nms_iou);
     std::vector<Lane> nms_lanes(std::vector<Lane> &candidates, float x_distance_thresh);
 
         std::string name() const override {
