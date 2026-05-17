@@ -15,7 +15,6 @@
 #include <ratio>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 void launch_preprocess(const uint8_t *d_bgr,
                        float         *d_out,
@@ -171,7 +170,7 @@ void Pipeline::run() {
                 int orig_y = (int)((pt.y - l_pad_y) / l_scale);
                 poly_points.push_back(cv::Point(orig_x, orig_y));
             }
-            // Draw the polyline
+            // Draw the polyline for DEBUG
             if (poly_points.size() > 1)
                 std::cout << "Drawing lane with " << poly_points.size() << " points. "
                           << "Start: (" << poly_points.front().x << "," << poly_points.front().y << ") "

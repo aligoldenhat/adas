@@ -20,7 +20,7 @@ int main(int argc, char *argv[]) {
     ModelRegistry::get().register_model("yolo26s", [] { return std::make_unique<YoloEngine>(); });
 
     try {
-        Pipeline pipeline(video_path, yolo_engine_path, lane_engine_path, 0.4f, 0.45f, 0.02f);
+        Pipeline pipeline(video_path, yolo_engine_path, lane_engine_path, 0.4f, 0.45f, 0.04f);
         pipeline.run();
     } catch (const std::exception &e) {
         std::cerr << "Error: " << e.what() << "\n";

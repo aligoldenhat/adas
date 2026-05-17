@@ -25,13 +25,6 @@ class ModelBase {
     virtual void load(const std::string &engine_path)            = 0;
     virtual void infer_async(void *d_input, cudaStream_t stream) = 0;
 
-    virtual std::vector<Detection> get_detections(float conf_thresh, float iou_thresh) {
-        return {};
-    };
-    virtual std::vector<Lane> get_lanes(float conf_thresh) {
-        return {};
-    }
-
     virtual std::string         name() const       = 0;
     virtual std::pair<int, int> input_size() const = 0;
 };

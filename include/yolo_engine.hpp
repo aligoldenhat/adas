@@ -11,7 +11,7 @@ class YoloEngine : public ModelBase {
     void load(const std::string &engine_path) override;
     void infer_async(void *d_input, cudaStream_t stream) override;
     std::vector<Detection> get_detections(float conf_thresh,
-                                          float iou_thresh) override;
+                                          float iou_thresh);
 
     std::string name() const override {
         return "yolov8";

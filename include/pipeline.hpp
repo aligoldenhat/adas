@@ -1,6 +1,7 @@
 #pragma once
-#include "model_base.hpp"
+#include "lane_engine.hpp"
 #include "video_source.hpp"
+#include "yolo_engine.hpp"
 #include <memory>
 #include <string>
 
@@ -17,9 +18,9 @@ class Pipeline {
     void run();
 
   private:
-    std::unique_ptr<ModelBase> yolo_model_;
-    std::unique_ptr<ModelBase> lane_model_;
-    VideoSource                source_;
+    std::unique_ptr<YoloEngine> yolo_model_;
+    std::unique_ptr<LaneEngine> lane_model_;
+    VideoSource                 source_;
 
     float yolo_conf_thresh_;
     float yolo_iou_thresh_;

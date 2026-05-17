@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <cuda_runtime.h>
 #include <fstream>
 #include <ios>
@@ -113,8 +114,8 @@ std::vector<Lane> LaneEngine::get_lanes(float conf_thresh) {
 
         // ADD THIS TEMPORARY DEBUG PRINT:
         if (prob > conf_thresh) {
-            std::cout << "Lane candidate! Prob: " << prob << " Length: " << h_lengths[i] << "conf_thresh"
-                      << conf_thresh << std::endl;
+            std::cout << "Lane candidate! Prob: " << prob << " Length: " << h_lengths[i]
+                      << " conf_thresh: " << conf_thresh << std::endl;
         }
 
         if (prob < conf_thresh)
@@ -143,5 +144,47 @@ std::vector<Lane> LaneEngine::get_lanes(float conf_thresh) {
             lanes.push_back(lane);
         }
     }
-    return lanes;
+    // return lanes;
+
+    // Suppress lanes within 20 picesl of each other
+    return nms_lanes(lanes, 50.0f);
+}
+
+std::vector<Lane> LaneEngine::nms_lanes(std::vector<Lane> &candidates, float x_distance_thresh) {
+    std::sort(candidates.begin(), candidates.end(), [](const Lane &a, const Lane &b) {
+        return a.score > b.score;
+    });
+    std::vector<bool> suppressed(candidates.size(), false);
+    std::vector<Lane> kept;
+
+    for (size_t i = 0; i < candidates.size(); i++) {
+        if (suppressed[i])
+            continue;
+
+        kept.push_back(candidates[i]);
+
+        // Suppress any candidate too close to this one
+        for (size_t j = i + 1; j < candidates.size(); j++) {
+            if (suppressed[j])
+                continue;
+
+            // Compare avarage x distance across shared points
+            float total_dist = 0.0f;
+            int   count      = 0;
+
+            int min_pts = std::min(candidates[i].points.size(), candidates[j].points.size());
+
+            for (int k = 0; k < min_pts; k++) {
+                total_dist += std::abs(candidates[i].points[k].x - candidates[j].points[k].y);
+
+                count++;
+            }
+
+            float avg_dist = (count > 0) ? total_dist / count : 999.0f;
+
+            if (avg_dist < x_distance_thresh)
+                suppressed[j] = true;
+        }
+    }
+    return kept;
 }
